@@ -111,7 +111,7 @@ let rec satisfy (e: expr) (a: assignment) : assignment option =
         
     in
     find_assignment (possible_bindings c);;
-        
+
 (* satisfy [[(Var 1)]; [(NegatedVar 2)]; [(Var 2); (NegatedVar 3)]] [];; *)
 
 (* CNF sample files:
