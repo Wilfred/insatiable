@@ -2,15 +2,40 @@ type variable = int
 
 type binding = variable * bool
 
+let string_of_binding (v, b) =
+  "(" ^ (string_of_int v) ^ ", " ^ (string_of_bool b) ^ ")";;
+
 type assignment = binding list
+
+let pp_list formatter items =
+  let parts = List.map formatter items in
+  "[" ^ (String.concat "; " parts) ^ "]";;
+
+let string_of_assignment (a: assignment) = pp_list string_of_binding a;;
 
 type literal = Var of variable | NegatedVar of variable
 
+let string_of_literal l =
+  match l with
+    Var v -> "Var " ^ (string_of_int v)
+  | NegatedVar v -> "NegatedVar " ^ (string_of_int v);;
+
 (* Literals joined by OR. *)
 type clause = literal list
+(* TODO: need to enforce that clauses never contain duplicates. *)
+
+let string_of_clause (c: clause) = pp_list string_of_literal c;;
+
 
 (* Clauses joined by AND. *)
 type expr = clause list
+
+let string_of_expr (e: expr) = pp_list string_of_clause e;;
+
+let string_of_expr_option (e: expr option) =
+  match e with
+    Some e' -> "Some " ^ (string_of_expr e')
+  | None -> "None";;
 
 type sat_result = Unsatisfiable | Satisfiable of assignment
 
