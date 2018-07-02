@@ -26,6 +26,10 @@ type clause = literal list
 
 let string_of_clause (c: clause) = pp_list string_of_literal c;;
 
+type clause_result =
+  | ClauseUnsatisfiable
+  | ClauseSatisfied
+  | StillRequires of literal list;;
 
 (* Clauses joined by AND. *)
 type expr = clause list
@@ -47,62 +51,53 @@ let possible_bindings (cl: clause) : binding list =
     )
     cl;;
 
-let opt_map f v =
-  match v with
-    Some v' -> Some (f v')
-  | None -> None;;
+type literal_match = Matches | DoesntMatch | Unrelated
 
-let push_head v vs =
-  v :: vs;;
+let str_of_literal_match lm =
+  match lm with
+    Matches -> "Matches"
+  | DoesntMatch -> "DoesntMatch"
+  | Unrelated -> "Unrelated";;
 
-let rec all_some items =
-  match items with
-    [] -> true
-  | x :: xs ->
-    match x with
-      (Some _) -> all_some xs
-    | None -> false;;
+let str_of_literal_match_list lml =
+  pp_list str_of_literal_match lml;;
 
-let rec flat_opt_list (items: 'a option list) : 'a list option =
-  match items with
-    [] -> Some []
-  | x :: xs ->
-    (match (x, flat_opt_list xs) with
-      (Some x', Some xs') -> Some (x' :: xs')
-    | _ -> None);;
-    
-let rec clause_assign (cl: clause) (b: binding) : clause option =
+let literal_matches (b: binding) (l: literal) : literal_match =
   let (var, var_val) = b in
-  match cl with
-    [] -> Some cl
-  | (Var v) :: vs ->
-    if v == var then
-      (if var_val then
-        clause_assign vs b
-      else
-        None)
-    else
-      opt_map (push_head (Var v)) (clause_assign vs b) 
-  | (NegatedVar v) :: vs ->
-    if var == v then
-      (if var_val then
-        None
-      else
-        clause_assign vs b)
-    else
-      opt_map (push_head (NegatedVar v)) (clause_assign vs b);;
+  match l with
+    (Var v) when v = var ->
+    if var_val then Matches else DoesntMatch
+  | (NegatedVar v) when v = var ->
+    if var_val then DoesntMatch else Matches
+  | _ -> Unrelated;;
 
-(* Apply assignment to this clause. Return the new clause if the
-   assignment can be applied, or None if the clause cannot be
-   satisfied with this assignment. *)
-let rec simplify (cl: clause) (a: assignment) : clause option =
-  match a with
-    [] -> Some cl
-  | b :: bs ->
-    match clause_assign cl b with
-      Some cl' -> simplify cl' bs
-    | None -> None;;
+(* Remove all instances of v from items. *)
+let rec drop_value v items =
+  List.filter ((<>) v) items;;
 
+(* Apply this binding to this clause.
+
+   Clauses are literals ORed together. *)
+let rec clause_assign (cl: clause) (b: binding) : clause_result =
+  assert(List.length cl > 0);
+  let matches = List.map (literal_matches b) cl in
+  if (List.mem Matches matches) then
+    ClauseSatisfied
+  else
+    (* Assuming our clause has no duplicates, then if we have a single
+       literal that doesn't match our binding, we can't satisfy this
+       clause. *)
+    (if (matches = [DoesntMatch]) then
+       ClauseUnsatisfiable
+     else
+       StillRequires (List.filter (fun l -> (literal_matches b l) = Unrelated) cl));;
+
+let rec unwrap_requires assigned_cl =
+  match assigned_cl with
+    [] -> []
+  | (StillRequires r) :: rs -> r :: unwrap_requires rs
+  | _ -> failwith "tried to unwrap a clause_result that isn't StillRequires";;
+  
 (* Given a SAT expression and a list of permissible assignments,
    attempt to find an assignment that satisfies the entire
    expression. *)
@@ -119,25 +114,19 @@ let rec satisfy (e: expr) (a: assignment) : assignment option =
       | b :: bs ->
         (* Try this assignment on the remaining clauses. *)
         let remaining = List.map (fun cl -> clause_assign cl b) cs in
-        (match (flat_opt_list remaining) with
-           (Some remaining') ->
-           (* If this assignment worked for all the other clauses, keep
-              going. *)
-           (match (satisfy remaining' (b :: a)) with
-              (Some final_a) ->
-              (* We managed to find an assignmentent continuing from the
-                 current assignments. *)
-              Some final_a
-            | None ->
-              (* No possible assignment from this point, try another
-                 possibility. *)
-              find_assignment bs)
-         | None -> find_assignment bs)
-        
+        let remaining = drop_value ClauseSatisfied remaining in
+        if (List.mem ClauseUnsatisfiable remaining) then
+          (* Clauses are ANDed together. If any are unsatisfiable with
+             the binding, just try the next one. *)
+          find_assignment bs
+        else
+          let remaining = unwrap_requires remaining in
+          match (satisfy remaining (b :: a)) with
+            Some final_a -> Some final_a
+          | None -> find_assignment bs
+
     in
     find_assignment (possible_bindings c);;
-
-(* satisfy [[(Var 1)]; [(NegatedVar 2)]; [(Var 2); (NegatedVar 3)]] [];; *)
 
 (* CNF sample files:
    https://people.sc.fsu.edu/~jburkardt/data/cnf/cnf.html
