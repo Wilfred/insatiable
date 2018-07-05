@@ -127,8 +127,3 @@ let rec satisfy (e: expr) (a: assignment) : assignment option =
 
     in
     find_assignment (possible_bindings c);;
-
-(* CNF sample files:
-   https://people.sc.fsu.edu/~jburkardt/data/cnf/cnf.html
-   
-*)
